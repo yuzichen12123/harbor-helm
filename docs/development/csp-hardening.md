@@ -76,10 +76,31 @@ worker-src 'self' blob:;
 upgrade-insecure-requests
 ```
 
+### 基线策略参数逐项说明
+- `default-src 'self'`：默认兜底策略。未单独声明来源的资源类型都继承该规则，仅允许同源加载。
+- `base-uri 'self'`：限制 HTML `<base>` 标签只能指向同源，避免攻击者篡改相对链接解析基准。
+- `object-src 'none'`：禁止 `object/embed/applet` 等插件内容加载，降低历史插件型攻击面。
+- `script-src 'self'`：仅允许同源脚本执行，是抑制 XSS 的核心指令之一。
+- `style-src 'self' 'unsafe-inline'`：允许同源样式，同时允许内联样式；在当前 Harbor 前端中这是兼容性妥协点。
+- `img-src 'self' data: blob:`：允许同源图片，同时允许 `data:`/`blob:` 图片，兼容 Harbor 中的动态图标与对象 URL 场景。
+- `font-src 'self' data:`：限制字体来源为同源和 `data:`，避免任意外域字体注入。
+- `connect-src 'self'`：限制 `fetch/XHR/WebSocket/EventSource` 等网络连接目标为同源。
+- `frame-ancestors 'none'`：禁止页面被任何站点嵌入，主要用于防点击劫持。
+- `form-action 'self'`：限制表单提交目标为同源，防止表单数据被提交到恶意域名。
+- `frame-src 'none'`：禁止当前页面主动加载子框架（`frame/iframe`），降低嵌套外部页面风险。
+- `manifest-src 'self'`：限制 Web App Manifest 来源为同源。
+- `worker-src 'self' blob:`：限制 Worker 脚本来源为同源和 `blob:`，兼容前端可能的 Blob Worker 机制。
+- `upgrade-insecure-requests`：让浏览器自动将页面中的 `http://` 子资源请求升级为 `https://`，减少混合内容风险。
+
 说明：
 - `style-src 'unsafe-inline'` 在 Angular/组件化样式场景中通常是必要妥协。
 - `script-src` 建议先保持严格（仅 `'self'`），根据真实告警再最小化放行。
 - `object-src 'none'`、`base-uri 'self'`、`form-action 'self'` 都是高价值加固项。
+
+响应头模式区别：
+- `Content-Security-Policy`：强制模式。浏览器会直接拦截违反策略的资源加载或执行，能实际降低 XSS/注入类风险，但策略过严会立即导致页面功能异常。
+- `Content-Security-Policy-Report-Only`：观察模式。浏览器不会拦截违规行为，只记录并上报违规事件（开发者工具可见，若配置 `report-uri/report-to` 也可发送到服务端），适合上线前验证策略影响面。
+- 推荐顺序：先以 `Content-Security-Policy-Report-Only` 灰度观察并修正策略，再切换到 `Content-Security-Policy` 强制生效。
 
 ## 上线策略（推荐）
 1. 先启用 `Content-Security-Policy-Report-Only`，观察 3-7 天。
