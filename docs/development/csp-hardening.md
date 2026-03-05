@@ -56,46 +56,60 @@ add_header Content-Security-Policy "frame-ancestors 'none'";
 - `base-uri`
 - `form-action`
 
-## 推荐基线策略（尽量严格且可运行）
-建议先使用以下基线：
+## 推荐基线策略（兼容优先，尽量避免渲染异常）
+建议先使用以下基线（目标是尽量避免页面渲染异常）：
 
 ```text
-default-src 'self';
+default-src 'self' https: http: data: blob:;
 base-uri 'self';
 object-src 'none';
-script-src 'self';
-style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob:;
-font-src 'self' data:;
-connect-src 'self';
+script-src 'self' https: http: data: blob: 'unsafe-inline' 'unsafe-eval';
+style-src 'self' https: http: data: blob: 'unsafe-inline';
+img-src 'self' https: http: data: blob:;
+font-src 'self' https: http: data: blob:;
+connect-src 'self' https: http: ws: wss:;
 frame-ancestors 'none';
-form-action 'self';
-frame-src 'none';
-manifest-src 'self';
-worker-src 'self' blob:;
-upgrade-insecure-requests
+form-action 'self' https: http:;
+frame-src 'self' https: http: data: blob:;
+manifest-src 'self' https: http: data: blob:;
+worker-src 'self' https: http: data: blob:;
 ```
 
 ### 基线策略参数逐项说明
-- `default-src 'self'`：默认兜底策略。未单独声明来源的资源类型都继承该规则，仅允许同源加载。
+- `default-src 'self' https: http: data: blob:`：默认兜底策略。为降低误拦截风险，放行同源与常见协议来源。
 - `base-uri 'self'`：限制 HTML `<base>` 标签只能指向同源，避免攻击者篡改相对链接解析基准。
 - `object-src 'none'`：禁止 `object/embed/applet` 等插件内容加载，降低历史插件型攻击面。
-- `script-src 'self'`：仅允许同源脚本执行，是抑制 XSS 的核心指令之一。
-- `style-src 'self' 'unsafe-inline'`：允许同源样式，同时允许内联样式；在当前 Harbor 前端中这是兼容性妥协点。
-- `img-src 'self' data: blob:`：允许同源图片，同时允许 `data:`/`blob:` 图片，兼容 Harbor 中的动态图标与对象 URL 场景。
-- `font-src 'self' data:`：限制字体来源为同源和 `data:`，避免任意外域字体注入。
-- `connect-src 'self'`：限制 `fetch/XHR/WebSocket/EventSource` 等网络连接目标为同源。
+- `script-src 'self' https: http: data: blob: 'unsafe-inline' 'unsafe-eval'`：脚本策略采用兼容优先，覆盖 `javascript:` 链接、第三方库运行时行为等潜在场景，减少功能中断概率。
+- `style-src 'self' https: http: data: blob: 'unsafe-inline'`：放行内联样式与常见样式来源，兼容 Angular/Swagger UI 的样式加载方式。
+- `img-src 'self' https: http: data: blob:`：兼容同源图片、`data:` 图标和 `blob:` 对象 URL。
+- `font-src 'self' https: http: data: blob:`：兼容字体静态资源与内联字体数据。
+- `connect-src 'self' https: http: ws: wss:`：兼容 API 调用与可能的 WebSocket 连接。
 - `frame-ancestors 'none'`：禁止页面被任何站点嵌入，主要用于防点击劫持。
-- `form-action 'self'`：限制表单提交目标为同源，防止表单数据被提交到恶意域名。
-- `frame-src 'none'`：禁止当前页面主动加载子框架（`frame/iframe`），降低嵌套外部页面风险。
-- `manifest-src 'self'`：限制 Web App Manifest 来源为同源。
-- `worker-src 'self' blob:`：限制 Worker 脚本来源为同源和 `blob:`，兼容前端可能的 Blob Worker 机制。
-- `upgrade-insecure-requests`：让浏览器自动将页面中的 `http://` 子资源请求升级为 `https://`，减少混合内容风险。
+- `form-action 'self' https: http:`：限制表单提交目标到同源/HTTP(S)。
+- `frame-src 'self' https: http: data: blob:`：兼容页面可能存在的框架加载场景，降低误杀风险。
+- `manifest-src 'self' https: http: data: blob:`：兼容 Manifest 等元资源加载。
+- `worker-src 'self' https: http: data: blob:`：兼容 Worker 与 Blob Worker 场景。
 
 说明：
 - `style-src 'unsafe-inline'` 在 Angular/组件化样式场景中通常是必要妥协。
-- `script-src` 建议先保持严格（仅 `'self'`），根据真实告警再最小化放行。
-- `object-src 'none'`、`base-uri 'self'`、`form-action 'self'` 都是高价值加固项。
+- 该基线以“兼容优先”为目标，`script-src` 放宽用于降低上线初期 UI 异常风险。
+- 稳定运行后，建议基于 `Report-Only` 告警逐步收紧；`object-src 'none'`、`base-uri 'self'`、`form-action` 可优先保持严格。
+
+### 与“不配置 CSP”相比，这套兼容基线的增益与边界
+相对完全不配置 CSP，这套策略仍然提供了以下有效防护：
+- `frame-ancestors 'none'`：有效阻断页面被第三方站点嵌入（点击劫持场景）。
+- `object-src 'none'`：禁用 `object/embed/applet` 等高风险插件载体。
+- `base-uri 'self'`：限制 `<base>` 被恶意篡改，降低相对链接劫持风险。
+- 浏览器端建立了最小策略边界，不再是“完全无约束”状态。
+
+同时，这套策略是“兼容优先”，安全能力存在明确上限：
+- `script-src` 放宽到 `https/http/data/blob + unsafe-inline + unsafe-eval`，对 XSS 的抑制能力明显弱于严格 CSP。
+- `connect-src` 放宽到 `https/http/ws/wss`，外联约束较弱。
+- `form-action` 放宽到 `self + https/http`，无法强约束表单只提交到同源。
+
+结论：
+- 该策略不会让 CSP “失效”，但其定位不是强防护，而是“先避免渲染异常、再逐步收紧”。
+- 如果目标是显著提升 XSS 防护强度，需要在 `Report-Only` 观察后持续收紧 `script-src/connect-src/form-action`。
 
 响应头模式区别：
 - `Content-Security-Policy`：强制模式。浏览器会直接拦截违反策略的资源加载或执行，能实际降低 XSS/注入类风险，但策略过严会立即导致页面功能异常。
